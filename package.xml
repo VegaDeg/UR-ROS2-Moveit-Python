@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>ur-ros2-moveitpy</name>
+  <name>ur_ros2_moveitpy</name>
   <version>0.0.0</version>
   <description>TODO: Package description</description>
   <maintainer email="deg@todo.todo">deg</maintainer>
@@ -11,6 +11,7 @@
 
   <depend>moveit_ros_planning_interface</depend>
   <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
   <depend>ros_ur_driver</depend>
 
   <test_depend>ament_lint_auto</test_depend>

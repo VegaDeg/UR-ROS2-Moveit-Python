@@ -1,7 +1,10 @@
 #include <moveit/move_group_interface/move_group_interface.h>
+#include <moveit/planning_scene_interface/planning_scene_interface.h>
+#include <moveit/planning_scene_monitor/planning_scene_monitor.h>
 #include <rclcpp/qos.hpp>
 #include <rclcpp/rclcpp.hpp>
-#include <std_msgs/msg/float32.hpp>
+#include <std_msgs/msg/string.hpp>
+
 using std::placeholders::_1;
 
 const std::string MOVE_GROUP = "ur_manipulator";
@@ -9,32 +12,79 @@ const std::string MOVE_GROUP = "ur_manipulator";
 class ReceiveAndControl : public rclcpp::Node
 {
 public:
-  /// Constructor
+  // Constructor
   ReceiveAndControl();
-
-  /// Move group interface for the robot
+  // Move group interface for the robot
   moveit::planning_interface::MoveGroupInterface move_group_;
-  /// Subscriber for target pose
-  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr subscription_;
+  // Subscriber for target pose
+  rclcpp::Subscription<geometry_msgs::msg::Vector3>::SharedPtr subscription_;
 
 private:
-  /// Callback that plans and executes trajectory each time the target pose is changed
-  void send_goal_callback(const std_msgs::msg::Float32::SharedPtr msg);
+  /// Callback that plans and executes trajectory to new pose
+  void send_goal_callback(const geometry_msgs::msg::Vector3::SharedPtr msg);
 };
 
-ReceiveAndControl::ReceiveAndControl() : Node("minimal_subscriber", rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true)),
+ReceiveAndControl::ReceiveAndControl() : Node("receive_control_node", rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true)),
                                            move_group_(std::shared_ptr<rclcpp::Node>(std::move(this)), MOVE_GROUP)
 {
-  // rclcpp::shutdown();
-  subscription_ = this->create_subscription<std_msgs::msg::Float32>(
-      "topic", 10, std::bind(&ReceiveAndControl::send_goal_callback, this, _1));
+  subscription_ = this->create_subscription<geometry_msgs::msg::Vector3>(
+      "target_pos", 10, std::bind(&ReceiveAndControl::send_goal_callback, this, _1));
 
   RCLCPP_INFO(this->get_logger(), "Initialization successful.");
 }
 
-void ReceiveAndControl::send_goal_callback(const std_msgs::msg::Float32::SharedPtr msg)
+void ReceiveAndControl::send_goal_callback(const geometry_msgs::msg::Vector3::SharedPtr msg)
 {
-  RCLCPP_INFO(this->get_logger(), "I heard: '%f'", msg->data);
+  RCLCPP_INFO(this->get_logger(), "Received goal position: '%f', '%f', '%f'", msg->x, msg->y, msg->z);
+
+  auto const target_pose = [msg]{
+    geometry_msgs::msg::Pose send_msg;
+    send_msg.orientation.w = 1.0;
+    send_msg.position.x = 0.28;
+    send_msg.position.y = -0.2;
+    send_msg.position.z = 1.1;
+    return send_msg;
+  }();
+
+  moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+  moveit_msgs::msg::CollisionObject collision_object;
+  collision_object.header.frame_id = this->move_group_.getPlanningFrame();
+  collision_object.id = "box1";
+  shape_msgs::msg::SolidPrimitive primitive;
+  primitive.type = primitive.BOX;
+  primitive.dimensions.resize(3);
+  primitive.dimensions[primitive.BOX_X] = 3;
+  primitive.dimensions[primitive.BOX_Y] = 3;
+  primitive.dimensions[primitive.BOX_Z] = 0.01;
+  geometry_msgs::msg::Pose box_pose;
+  box_pose.orientation.w = 1.0;
+  box_pose.position.x = 0.0;
+  box_pose.position.y = 0.0;
+  box_pose.position.z = -0.01;
+  collision_object.primitives.push_back(primitive);
+  collision_object.primitive_poses.push_back(box_pose);
+  collision_object.operation = collision_object.ADD;
+  std::vector<moveit_msgs::msg::CollisionObject> collision_objects;
+  collision_objects.push_back(collision_object);
+  planning_scene_interface.addCollisionObjects(collision_objects);
+
+
+
+  this->move_group_.setPoseTarget(target_pose);
+
+  // Create a plan to that target pose
+  auto const [success, plan] = [this]{
+    moveit::planning_interface::MoveGroupInterface::Plan msg;
+    auto const ok = static_cast<bool>(this->move_group_.plan(msg));
+    return std::make_pair(ok, msg);
+  }();
+
+  // Execute the plan
+  if(success) {
+    this->move_group_.execute(plan);
+  } else {
+    RCLCPP_ERROR(this->get_logger(), "Planing failed!");
+  }
 }
 
 int main(int argc, char *argv[])
@@ -51,221 +101,3 @@ int main(int argc, char *argv[])
   return EXIT_SUCCESS;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// #include <memory>
-
-// #include <rclcpp/rclcpp.hpp>
-// #include <moveit/move_group_interface/move_group_interface.h>
-
-// int main(int argc, char * argv[])
-// {
-//   // Initialize ROS and create the Node
-//   rclcpp::init(argc, argv);
-//   auto const node = std::make_shared<rclcpp::Node>(
-//     "hello_moveit",
-//     rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true)
-//   );
-
-//   // Create a ROS logger
-//   auto const logger = rclcpp::get_logger("hello_moveit");
-//   RCLCPP_INFO(logger, "I heard:");
-
-//   // Create the MoveIt MoveGroup Interface
-// using moveit::planning_interface::MoveGroupInterface;
-// auto move_group_interface = MoveGroupInterface(node, "ur_manipulator");
-// RCLCPP_INFO(logger, "I heard:");
-
-// // Set a target Pose
-// auto const target_pose = []{
-//   geometry_msgs::msg::Pose msg;
-//   msg.orientation.w = 1.0;
-//   msg.position.x = 0.28;
-//   msg.position.y = -0.2;
-//   msg.position.z = 0.5;
-//   return msg;
-// }();
-// move_group_interface.setPoseTarget(target_pose);
-// RCLCPP_INFO(logger, "I heard:");
-// // Create a plan to that target pose
-// auto const [success, plan] = [&move_group_interface]{
-//   moveit::planning_interface::MoveGroupInterface::Plan msg;
-//   auto const ok = static_cast<bool>(move_group_interface.plan(msg));
-//   return std::make_pair(ok, msg);
-// }();
-
-// // Execute the plan
-// if(success) {
-//   move_group_interface.execute(plan);
-// } else {
-//   RCLCPP_ERROR(logger, "Planing failed!");
-// }
-
-//   // Shutdown ROS
-//   rclcpp::shutdown();
-//   return 0;
-// }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// #include <memory>
-
-// #include <rclcpp/rclcpp.hpp>
-// #include <moveit/move_group_interface/move_group_interface.h>
-
-// #include "std_msgs/msg/string.hpp"
-// using std::placeholders::_1;
-
-
-// class MinimalSubscriber : public rclcpp::Node
-// {
-//   public:
-//     MinimalSubscriber()
-//     : Node("minimal_nm")
-//     {
-//       subscription_ = this->create_subscription<std_msgs::msg::String>(
-//       "topic", 10, std::bind(&MinimalSubscriber::topic_callback, this, _1));
-      
-
-//       // auto const node = std::make_shared<rclcpp::Node>(
-//       //   "hello_moveit",
-//       //   rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true));
-
-//       // using moveit::planning_interface::MoveGroupInterface;
-//       // auto move_group_interface = MoveGroupInterface(node, "ur_manipulator");
-
-
-//       publisher_ = this->create_publisher<std_msgs::msg::String>("toppic", 10);
- 
-//       auto message = std_msgs::msg::String();
-//       message.data = "Hello, world! ";
-//       publisher_->publish(message);
-
-
-
-//       // rclcpp::spin_once(move_group_interface);
-
-//       // rclcpp::shutdown();
-      
-//       // Create a ROS logger
-//       RCLCPP_INFO(this->get_logger(), "I heard:");
-
-//     }
-
-//   private:
-//     void topic_callback(const std_msgs::msg::String::SharedPtr msg) const
-//     {
-//       RCLCPP_INFO(this->get_logger(), "I heard: '%s'", msg->data.c_str());
-//       // rclcpp::shutdown();
-//     }
-//     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr subscription_;
-//     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr publisher_;
-// };
-
-// int main(int argc, char * argv[])
-// {
-
-  
-//   rclcpp::init(argc, argv);
-
-//           auto const node = std::make_shared<rclcpp::Node>(
-//         "hello_moveit",
-//         rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true));
-
-
-//       using moveit::planning_interface::MoveGroupInterface;
-//       auto move_group_interface = MoveGroupInterface(node, "ur_manipulator");
-
-//       auto const logger = rclcpp::get_logger("hello_moveit");
-
-
-//   auto const a = std::make_shared<MinimalSubscriber>();
-//   //   executor.add_node(a);
-//   // std::thread([&executor]() { executor.spin(); }).detach();
-//   rclcpp::spin(a);
-//   rclcpp::shutdown();
-//   return 0;
-// }
-
-
-
-
-
-
-
-
-
-// int main(int argc, char * argv[])
-// {
-//   // Initialize ROS and create the Node
-//   rclcpp::init(argc, argv);
-//   auto const node = std::make_shared<rclcpp::Node>(
-//     "hello_moveit",
-//     rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true)
-//   );
-
-//   // Create a ROS logger
-//   auto const logger = rclcpp::get_logger("hello_moveit");
-
-//   // Create the MoveIt MoveGroup Interface
-// using moveit::planning_interface::MoveGroupInterface;
-// auto move_group_interface = MoveGroupInterface(node, "ur_manipulator");
-
-// // Set a target Pose
-// auto const target_pose = []{
-//   geometry_msgs::msg::Pose msg;
-//   msg.orientation.w = 1.0;
-//   msg.position.x = 0.28;
-//   msg.position.y = -0.2;
-//   msg.position.z = 0.5;
-//   return msg;
-// }();
-// move_group_interface.setPoseTarget(target_pose);
-
-// // Create a plan to that target pose
-// auto const [success, plan] = [&move_group_interface]{
-//   moveit::planning_interface::MoveGroupInterface::Plan msg;
-//   auto const ok = static_cast<bool>(move_group_interface.plan(msg));
-//   return std::make_pair(ok, msg);
-// }();
-
-// // Execute the plan
-// if(success) {
-//   move_group_interface.execute(plan);
-// } else {
-//   RCLCPP_ERROR(logger, "Planing failed!");
-// }
-
-//   // Shutdown ROS
-//   rclcpp::shutdown();
-//   return 0;
-// }

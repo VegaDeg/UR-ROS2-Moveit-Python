@@ -9,12 +9,13 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(geometry_msgs REQUIRED)
 
 
 add_executable(talker src/talker.cpp)
 add_executable(hello_moveit_ur src/hello_moveit_ur.cpp)
-ament_target_dependencies(hello_moveit_ur moveit_ros_planning_interface rclcpp std_msgs)
-ament_target_dependencies(talker rclcpp std_msgs)
+ament_target_dependencies(hello_moveit_ur moveit_ros_planning_interface rclcpp geometry_msgs)
+ament_target_dependencies(talker rclcpp geometry_msgs)
 
 install(TARGETS 
   hello_moveit_ur
